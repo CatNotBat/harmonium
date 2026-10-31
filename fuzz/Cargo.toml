@@ -1,0 +1,55 @@
+[package]
+name = "harmonium-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+harmonium-modem = { path = "../crates/harmonium-modem" }
+harmonium-link = { path = "../crates/harmonium-link" }
+harmonium-voice = { path = "../crates/harmonium-voice" }
+harmonium-text = { path = "../crates/harmonium-text" }
+age = { version = "0.12", features = ["armor"] }
+gotatun = { version = "0.10", default-features = false, features = ["ring"] }
+
+# This crate is its own workspace so `cargo fuzz` never joins the main workspace.
+[workspace]
+
+[[bin]]
+name = "deframer"
+path = "fuzz_targets/deframer.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "modem_rx"
+path = "fuzz_targets/modem_rx.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "link_receive"
+path = "fuzz_targets/link_receive.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "voice_packet"
+path = "fuzz_targets/voice_packet.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "text_decrypt"
+path = "fuzz_targets/text_decrypt.rs"
+test = false
+doc = false
+bench = false

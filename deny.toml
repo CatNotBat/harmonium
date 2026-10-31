@@ -1,0 +1,54 @@
+# Ground rule: no custom cryptography. Crypto primitives may only enter the
+# dependency graph through gotatun (WireGuard) and age; Harmonium crates must
+# never depend on them directly.
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+ignore = [
+    # crypto-bigint 0.5 (via age -> p256/hpke, unconditional in age 0.12): constant-time leaks.
+    # Harmonium uses only X25519 age identities, which never touch crypto-bigint; P-256 is
+    # reached only by age's p256 tag recipients, which we never construct. Revisit on age 0.13.
+    { id = "RUSTSEC-2026-0387", reason = "P-256 path unused; X25519 only" },
+    # basic-toml unmaintained, via age's i18n-embed (localised error strings), no secrets.
+    { id = "RUSTSEC-2026-0374", reason = "unmaintained, not a vulnerability; age i18n only" },
+    # zip (build dep of libsodium-sys-stable -> rosenpass): the three zip advisories concern
+    # extracting attacker-controlled archives; here zip only unpacks the libsodium source
+    # tarball at build time. libsodium-sys-stable pins zip "8.6", so 9.0.0 is not reachable.
+    { id = "RUSTSEC-2026-0367", reason = "build-time libsodium tarball extraction only" },
+    { id = "RUSTSEC-2026-0368", reason = "build-time libsodium tarball extraction only" },
+    { id = "RUSTSEC-2026-0369", reason = "build-time libsodium tarball extraction only" },
+    # paste (via rosenpass): unmaintained, no known vulnerability; used only by rosenpass's
+    # data_lense! macro at compile time.
+    { id = "RUSTSEC-2024-0436", reason = "rosenpass compile-time macro dependency; unmaintained" },
+]
+
+[licenses]
+version = 2
+allow = [
+    "MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception", "BSD-2-Clause", "BSD-3-Clause",
+    "ISC", "MPL-2.0", "LGPL-2.1-only", "LGPL-2.1-or-later", "Unicode-3.0", "Zlib", "CC0-1.0",
+    "BSL-1.0", "OpenSSL", "CDLA-Permissive-2.0", "0BSD",
+]
+# codec2 (pure-Rust port of Codec 2) is LGPL-2.1-only: fine for an MPL-2.0 app
+# shipped as source; a binary release must allow relinking (see README, licensing).
+confidence-threshold = 0.8
+
+[bans]
+multiple-versions = "allow"
+deny = [
+    { crate = "chacha20poly1305", wrappers = ["gotatun", "age", "age-core", "hpke"] },
+    { crate = "chacha20", wrappers = ["chacha20poly1305", "age-core", "scrypt", "rand_chacha"] },
+    { crate = "aes-gcm", wrappers = ["hpke"] },
+    { crate = "x25519-dalek", wrappers = ["gotatun", "age", "hpke"] },
+    { crate = "curve25519-dalek", wrappers = ["x25519-dalek", "ed25519-dalek"] },
+    { crate = "blake2", wrappers = ["gotatun"] },
+    { crate = "hkdf", wrappers = ["age", "age-core", "hpke", "elliptic-curve"] },
+    { crate = "ring", wrappers = ["gotatun", "rustls"] },
+    { crate = "snow" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

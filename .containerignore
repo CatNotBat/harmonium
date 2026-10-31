@@ -1,0 +1,2 @@
+# The image holds only the toolchain; sources are mounted at run time.
+*

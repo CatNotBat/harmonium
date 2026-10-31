@@ -1,0 +1,30 @@
+[package]
+name = "harmonium-audio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+cpal = "0.18"
+ringbuf = "0.5.2"
+thiserror.workspace = true
+tracing.workspace = true
+
+# The `pipewire` feature makes cpal's default host on Linux prefer the PipeWire backend,
+# which is the only cpal backend that enumerates the pw-loopback virtual nodes by their
+# node.description (the ALSA backend hides them inside a single "PipeWire Sound Server"
+# aggregate device). Scoped to Linux so the Windows build never enables it.
+[target.'cfg(target_os = "linux")'.dependencies]
+cpal = { version = "0.18", features = ["pipewire"] }
+
+[target.'cfg(windows)'.dependencies]
+wasapi = "0.26"
+windows = { version = "0.62.2", features = [
+    "Win32_Foundation",
+    "Win32_Media_Audio",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Variant",
+] }

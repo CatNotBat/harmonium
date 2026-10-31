@@ -1,0 +1,15 @@
+[package]
+name = "harmonium-text"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+age = { version = "0.12", features = ["armor"] }
+arboard = { version = "3.7", default-features = false }
+thiserror.workspace = true
+harmonium-keys.workspace = true
+
+[dev-dependencies]
+age = { version = "0.12", features = ["armor"] }

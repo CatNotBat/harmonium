@@ -1,0 +1,34 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "tools/channel-sim"]
+# harmonium-pq pulls in rosenpass (libsodium + liboqs), which does not build on
+# the Windows CI runner. Keep it out of the default workspace so `--workspace`
+# builds never compile it; it is reached only via harmonium-cli's `pq` feature.
+exclude = ["crates/harmonium-pq", "fuzz"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MPL-2.0"
+repository = "https://github.com/CatNotBat/harmonium"
+rust-version = "1.95"
+
+[workspace.dependencies]
+harmonium-voice = { path = "crates/harmonium-voice" }
+harmonium-modem = { path = "crates/harmonium-modem" }
+harmonium-link = { path = "crates/harmonium-link" }
+harmonium-keys = { path = "crates/harmonium-keys" }
+harmonium-audio = { path = "crates/harmonium-audio" }
+harmonium-text = { path = "crates/harmonium-text" }
+channel-sim = { path = "tools/channel-sim" }
+
+anyhow = "1"
+thiserror = "2"
+clap = { version = "4", features = ["derive"] }
+hound = "3.5"
+rand = "0.9"
+rand_chacha = "0.9"
+serde = { version = "1", features = ["derive"] }
+toml = "0.9"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

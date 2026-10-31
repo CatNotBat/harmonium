@@ -1,0 +1,5 @@
+/target
+*.wav
+!tests/data/*.wav
+/out
+/.survey

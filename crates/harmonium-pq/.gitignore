@@ -1,0 +1,5 @@
+# This crate is excluded from the workspace, so standalone `--manifest-path`
+# builds use a local target dir (and would drop a local lock file). Neither is
+# part of the workspace build and neither should be committed.
+/target
+Cargo.lock
