@@ -66,11 +66,6 @@ pub struct CallOpts {
     #[arg(long)]
     pub allow_unverified: bool,
 
-    /// Enable the post-quantum (Rosenpass) key exchange.
-    #[cfg(feature = "pq")]
-    #[arg(long)]
-    pub pq: bool,
-
     /// Speak this WAV (48 kHz mono, looped) instead of the microphone. For tests.
     #[arg(long, value_name = "IN.wav")]
     pub mic_wav: Option<PathBuf>,
@@ -153,18 +148,6 @@ pub struct CallEngine {
     bad_voice: u64,
     /// Samples in one modem frame, from a one-shot probe.
     frame_len: usize,
-    #[cfg(feature = "pq")]
-    pq_session: Option<harmonium_pq::PqSession>,
-    #[cfg(feature = "pq")]
-    pq_initiator: bool,
-    #[cfg(feature = "pq")]
-    pq_installed_psk: bool,
-    #[cfg(feature = "pq")]
-    pq_handshakes_at_install: u64,
-    /// The live session was already PQ-keyed (by the previous PSK) when the current PSK was
-    /// installed, so a rekey does not interrupt voice.
-    #[cfg(feature = "pq")]
-    pq_secure_at_install: bool,
 }
 
 impl CallEngine {
@@ -186,16 +169,6 @@ impl CallEngine {
             recv_times: Vec::new(),
             bad_voice: 0,
             frame_len,
-            #[cfg(feature = "pq")]
-            pq_session: None,
-            #[cfg(feature = "pq")]
-            pq_initiator: false,
-            #[cfg(feature = "pq")]
-            pq_installed_psk: false,
-            #[cfg(feature = "pq")]
-            pq_handshakes_at_install: 0,
-            #[cfg(feature = "pq")]
-            pq_secure_at_install: false,
         }
     }
 
@@ -208,12 +181,6 @@ impl CallEngine {
     pub fn step(&mut self, mic: &[f32], from_discord: &[f32]) -> StepOut {
         // Mic → Codec 2 → WireGuard → modem queue.
         for packet in self.encoder.push_48k(mic) {
-            #[cfg(feature = "pq")]
-            if self.pq_session.is_some() && !self.pq_secure() {
-                // Fail closed: with PQ enabled, never emit voice until the session is
-                // keyed with the PQ PSK and that session has completed a handshake.
-                continue;
-            }
             let bytes = packet.to_bytes();
             let sent_before = self.link.stats().sent;
             for wire in self.link.send(Channel::Voice, &bytes) {
@@ -232,8 +199,8 @@ impl CallEngine {
                 self.tx.send(&wire);
             }
             for datagram in delivered {
-                match datagram.channel {
-                    Channel::Voice => match VoicePacket::from_bytes(&datagram.payload) {
+                if datagram.channel == Channel::Voice {
+                    match VoicePacket::from_bytes(&datagram.payload) {
                         Ok(voice) => {
                             self.decoder.push_packet(&voice);
                             self.has_voice = true;
@@ -241,10 +208,7 @@ impl CallEngine {
                             self.recv_times.push((voice.seq, self.now));
                         }
                         Err(_) => self.bad_voice += 1,
-                    },
-                    #[cfg(feature = "pq")]
-                    Channel::Pq => self.handle_pq_datagram(&datagram.payload),
-                    _ => {}
+                    }
                 }
             }
         }
@@ -273,103 +237,6 @@ impl CallEngine {
     pub fn tick(&mut self) {
         for wire in self.link.tick() {
             self.tx.send(&wire);
-        }
-        #[cfg(feature = "pq")]
-        self.poll_pq();
-    }
-
-    /// PQ layer status: "off", "pending", or "secure".
-    pub fn pq_status(&self) -> &'static str {
-        #[cfg(feature = "pq")]
-        {
-            match &self.pq_session {
-                None => "off",
-                Some(_) if self.pq_secure() => "secure",
-                Some(_) => "pending",
-            }
-        }
-        #[cfg(not(feature = "pq"))]
-        {
-            "off"
-        }
-    }
-
-    /// Number of PSKs emitted by the PQ layer (0 when disabled).
-    pub fn pq_exchanges(&self) -> u64 {
-        #[cfg(feature = "pq")]
-        {
-            self.pq_session.as_ref().map(|s| s.exchanges()).unwrap_or(0)
-        }
-        #[cfg(not(feature = "pq"))]
-        {
-            0
-        }
-    }
-
-    /// Whether the current WireGuard session is keyed with the PQ PSK.
-    #[cfg(feature = "pq")]
-    pub fn pq_secure(&self) -> bool {
-        self.pq_session.is_some()
-            && self.pq_installed_psk
-            && self.link.is_up()
-            && (self.pq_secure_at_install
-                || self.link.stats().handshakes_completed > self.pq_handshakes_at_install)
-    }
-
-    #[cfg(feature = "pq")]
-    pub fn set_pq_session(&mut self, session: harmonium_pq::PqSession, initiator: bool) {
-        self.pq_session = Some(session);
-        self.pq_initiator = initiator;
-    }
-
-    #[cfg(feature = "pq")]
-    fn poll_pq(&mut self) {
-        let Some(session) = self.pq_session.as_mut() else {
-            return;
-        };
-        // Only drive rosenpass once the WireGuard session is up, so the initial
-        // InitHello is not silently dropped (rosenpass timers are wall-clock; the
-        // offline selftest runs faster than real time and must not rely on them).
-        if !self.link.is_up() {
-            return;
-        }
-        let out = session.poll();
-        self.handle_pq_output(out);
-    }
-
-    #[cfg(feature = "pq")]
-    fn handle_pq_datagram(&mut self, msg: &[u8]) {
-        let Some(session) = self.pq_session.as_mut() else {
-            return;
-        };
-        let out = session.receive(msg);
-        self.handle_pq_output(out);
-    }
-
-    #[cfg(feature = "pq")]
-    fn handle_pq_output(&mut self, out: harmonium_pq::PqOutput) {
-        for m in out.send {
-            for wire in self.link.send(Channel::Pq, &m) {
-                self.tx.send(&wire);
-            }
-        }
-        if let Some(psk) = out.new_psk {
-            // Every handshake from now on mixes in the new PSK; until one completes, the live
-            // session is secure only if the previous PSK keyed it.
-            self.pq_secure_at_install = self.pq_secure();
-            self.link.set_psk(Some(*psk));
-            self.pq_handshakes_at_install = self.link.stats().handshakes_completed;
-            self.pq_installed_psk = true;
-            if self.pq_initiator {
-                for wire in self.link.force_handshake() {
-                    self.tx.send(&wire);
-                }
-            }
-        }
-        if out.expired {
-            // Fail closed until the next PSK is installed and used.
-            self.pq_installed_psk = false;
-            self.pq_secure_at_install = false;
         }
     }
 
@@ -453,13 +320,6 @@ pub fn run_call(store: &Store, opts: &CallOpts) -> Result<()> {
         psk: None,
     };
     let mut engine = CallEngine::new(&keys, opts.phy.modem_config());
-
-    #[cfg(feature = "pq")]
-    if opts.pq {
-        let (own, peer_pk, initiator) = crate::keys::load_pq_context(store, &opts.peer, &identity)?;
-        let session = harmonium_pq::PqSession::new(&own, &peer_pk, initiator)?;
-        engine.set_pq_session(session, initiator);
-    }
 
     // Prime the to_discord ring so the first callbacks do not underrun.
     for _ in 0..PRIME_STEPS {
@@ -581,8 +441,7 @@ fn status_line(engine: &CallEngine, io: harmonium_audio::IoStats) -> String {
     let rx = engine.rx_stats();
     format!(
         "link={} handshakes={} voice_sent={} voice_delivered={} bad={} \
-         modem_ok={} modem_failed={} pre_fec_ber={:.6} audio_underruns={} audio_overruns={} \
-         pq={} pq_exchanges={}",
+         modem_ok={} modem_failed={} pre_fec_ber={:.6} audio_underruns={} audio_overruns={}",
         if engine.is_up() { "up" } else { "down" },
         link.handshakes_completed,
         engine.voice_sent(),
@@ -593,8 +452,6 @@ fn status_line(engine: &CallEngine, io: harmonium_audio::IoStats) -> String {
         rx.pre_fec_ber(),
         io.underruns,
         io.overruns,
-        engine.pq_status(),
-        engine.pq_exchanges(),
     )
 }
 

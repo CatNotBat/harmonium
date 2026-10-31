@@ -490,37 +490,3 @@ fn debug_never_prints_secrets() {
     let s = format!("{keys:?}");
     assert!(!s.contains("171") && !s.contains("205"), "{s}");
 }
-
-#[test]
-fn pq_channel_round_trips() {
-    let mut pipe = Pipe::new(0.0, SEED + 10);
-    pipe.bring_up(50);
-
-    let wire = pipe.a.send(Channel::Pq, b"pq msg");
-    assert_eq!(wire.len(), 1);
-    let (_, delivered) = pipe.b.receive(&wire[0]);
-    assert_eq!(delivered.len(), 1);
-    assert_eq!(delivered[0].channel, Channel::Pq);
-    assert_eq!(delivered[0].payload, b"pq msg");
-}
-
-#[test]
-fn force_handshake_after_set_psk_comes_back_up() {
-    let mut pipe = Pipe::new(0.0, SEED + 11);
-    pipe.bring_up(50);
-
-    let hs_a = pipe.a.stats().handshakes_completed;
-    let hs_b = pipe.b.stats().handshakes_completed;
-
-    pipe.a.set_psk(Some([0x42; 32]));
-    pipe.b.set_psk(Some([0x42; 32]));
-
-    let wire = pipe.a.force_handshake();
-    assert!(!wire.is_empty());
-    pipe.a2b.extend(wire);
-    pipe.drain();
-
-    assert!(pipe.a.is_up() && pipe.b.is_up());
-    assert!(pipe.a.stats().handshakes_completed > hs_a);
-    assert!(pipe.b.stats().handshakes_completed > hs_b);
-}

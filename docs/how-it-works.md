@@ -58,8 +58,8 @@ fingerprint with your friend outside Discord (in person, or a QR code) so Discor
 keys in the middle. Text messages use [age](https://age-encryption.org), pasted into the chat as
 ASCII.
 
-An optional post-quantum layer, [Rosenpass](https://rosenpass.eu), mixes a post-quantum key into
-WireGuard. It is built and tested offline but has not yet run on a live call.
+A post-quantum layer ([Rosenpass](https://rosenpass.eu) feeding WireGuard's preshared key) is on
+the `pq-rosenpass` branch. It passes offline but has not run on a live call yet.
 
 **Fail closed:** if the tunnel is down, Harmonium sends idle modem frames, never your plain
 microphone.
@@ -119,7 +119,8 @@ ends:
 | Packets delivered corrupted | 0 | 0 |
 
 Mouth to ear takes about 1.5 s one way. Every packet that arrived was decrypted and
-authenticated; none arrived damaged. Losses show up as audible gaps. The text path (encrypt, paste into Discord, copy back, decrypt) works exactly.
+authenticated; none arrived damaged. Losses show up as audible gaps. The text path (encrypt,
+paste into Discord, copy back, decrypt) works exactly.
 
 ## What it is not
 
@@ -135,5 +136,5 @@ The full threat model is in [threat-model.md](threat-model.md); the modem design
 
 The spark came from Benn Jordan's video
 [There Are Files Stored in This Video](https://www.youtube.com/watch?v=fhoJK02oD_E), about hiding
-data in sound. If data can hide in audio, then any app that carries your
-voice can carry your encryption too, and the platform does not need to be trusted with it.
+files inside a video. If data can ride along in media, then any app that carries your voice can
+carry your encryption too, and the platform does not need to be trusted with it.

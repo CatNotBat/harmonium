@@ -18,8 +18,8 @@ use gotatun::x25519;
 use zeroize::Zeroize as _;
 
 /// Static keys for one link endpoint. The private key is ours; `peer_public` is the other
-/// endpoint's long-term static public key; `psk` is an optional preshared key (Rosenpass feeds
-/// this in later). `Debug` redacts the secrets.
+/// endpoint's long-term static public key; `psk` is an optional preshared key. `Debug`
+/// redacts the secrets.
 #[derive(Clone)]
 pub struct LinkKeys {
     pub private: [u8; 32],
@@ -51,7 +51,6 @@ pub enum Channel {
     Voice = 1,
     Control = 2,
     Text = 3,
-    Pq = 4,
 }
 
 impl Channel {
@@ -60,7 +59,6 @@ impl Channel {
             1 => Some(Channel::Voice),
             2 => Some(Channel::Control),
             3 => Some(Channel::Text),
-            4 => Some(Channel::Pq),
             _ => None,
         }
     }
@@ -282,22 +280,6 @@ impl Link {
     /// Whether the current session exists, is confirmed, and is not yet due for rekeying.
     pub fn is_up(&self) -> bool {
         self.tunn.has_active_session() && !self.unconfirmed.is_some_and(|u| u.blocks_up)
-    }
-
-    /// Replace the preshared key used by subsequent handshakes. Takes effect at the next
-    /// handshake; the current session is unaffected.
-    pub fn set_psk(&mut self, psk: Option<[u8; 32]>) {
-        self.tunn.set_preshared_key(psk);
-    }
-
-    /// Start a new WireGuard handshake immediately (forcing one even if a handshake is
-    /// already in flight). Returns wire packets like `send`.
-    pub fn force_handshake(&mut self) -> Vec<Vec<u8>> {
-        self.tunn
-            .format_handshake_initiation(true)
-            .map(|p| wire_packet(p.into()))
-            .into_iter()
-            .collect()
     }
 
     /// Snapshot the link's counters plus the time since the last handshake.

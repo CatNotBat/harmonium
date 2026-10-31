@@ -10,7 +10,7 @@ FROM docker.io/library/rust:1.99-slim-bookworm
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates curl xz-utils git python3 pkg-config cmake make clang libclang-dev \
-        libasound2-dev libpipewire-0.3-dev libsodium-dev \
+        libasound2-dev libpipewire-0.3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 ARG LLVM_MINGW_VERSION=20261020

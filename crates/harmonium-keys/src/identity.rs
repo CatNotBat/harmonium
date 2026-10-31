@@ -5,7 +5,6 @@ use std::str::FromStr;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use sha2::{Digest, Sha256};
 use zeroize::Zeroize as _;
 
 use crate::error::KeysError;
@@ -68,7 +67,6 @@ impl Identity {
         Bundle {
             wg_public: self.wg_public(),
             age_recipient: self.age_recipient(),
-            pq: None,
         }
     }
 }
@@ -89,27 +87,16 @@ impl fmt::Debug for Identity {
 pub struct Bundle {
     pub wg_public: [u8; 32],
     pub age_recipient: String,
-    /// SHA-256 hash of the peer's Rosenpass public key; `None` means no PQ layer.
-    pub pq: Option<[u8; 32]>,
 }
 
 impl fmt::Display for Bundle {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.pq {
-            Some(hash) => write!(
-                f,
-                "harmonium2:{}:{}:{}",
-                STANDARD.encode(self.wg_public),
-                self.age_recipient,
-                STANDARD.encode(hash)
-            ),
-            None => write!(
-                f,
-                "harmonium1:{}:{}",
-                STANDARD.encode(self.wg_public),
-                self.age_recipient
-            ),
-        }
+        write!(
+            f,
+            "harmonium1:{}:{}",
+            STANDARD.encode(self.wg_public),
+            self.age_recipient
+        )
     }
 }
 
@@ -117,15 +104,9 @@ impl FromStr for Bundle {
     type Err = KeysError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (rest, has_pq) = match (s.strip_prefix("harmonium1:"), s.strip_prefix("harmonium2:")) {
-            (Some(rest), None) => (rest, false),
-            (None, Some(rest)) => (rest, true),
-            _ => {
-                return Err(KeysError::Parse(
-                    "bundle must start with \"harmonium1:\" or \"harmonium2:\"".into(),
-                ));
-            }
-        };
+        let rest = s
+            .strip_prefix("harmonium1:")
+            .ok_or_else(|| KeysError::Parse("bundle must start with \"harmonium1:\"".into()))?;
 
         let mut parts = rest.split(':');
         let wg_b64 = parts
@@ -134,7 +115,6 @@ impl FromStr for Bundle {
         let age_recipient = parts
             .next()
             .ok_or_else(|| KeysError::Parse("missing age recipient".into()))?;
-        let hash_b64 = parts.next();
         if parts.next().is_some() {
             return Err(KeysError::Parse("bundle has extra fields".into()));
         }
@@ -156,36 +136,11 @@ impl FromStr for Bundle {
             .parse::<age::x25519::Recipient>()
             .map_err(|e| KeysError::Parse(format!("invalid age recipient: {e}")))?;
 
-        let pq = if has_pq {
-            let hash_b64 = hash_b64.ok_or_else(|| KeysError::Parse("missing pq hash".into()))?;
-            let hash_bytes = STANDARD
-                .decode(hash_b64)
-                .map_err(|e| KeysError::Parse(format!("invalid pq hash: {e}")))?;
-            let hash: [u8; 32] = hash_bytes
-                .try_into()
-                .map_err(|_| KeysError::Parse("pq hash must be 32 bytes".into()))?;
-            Some(hash)
-        } else {
-            if hash_b64.is_some() {
-                return Err(KeysError::Parse("bundle has extra fields".into()));
-            }
-            None
-        };
-
         Ok(Bundle {
             wg_public,
             age_recipient: recipient.to_string(),
-            pq,
         })
     }
-}
-
-/// SHA-256(b"harmonium-pq-pk-v1\0" || pk).
-pub fn pq_pk_hash(pk: &[u8]) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(b"harmonium-pq-pk-v1\0");
-    hasher.update(pk);
-    hasher.finalize().into()
 }
 
 #[cfg(test)]

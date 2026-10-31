@@ -7,16 +7,12 @@ use std::collections::HashMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-#[cfg(feature = "pq")]
-use anyhow::anyhow;
 use anyhow::{Context, Result, bail};
 use clap::Args;
 
 use channel_sim::{Channel, ChannelConfig, OpusApp};
 use harmonium_keys::Identity;
 use harmonium_link::{LinkKeys, LinkStats};
-#[cfg(feature = "pq")]
-use harmonium_pq::{PqKeypair, PqSession};
 
 use crate::call::{CallEngine, STEP_SAMPLES};
 use crate::cli::PhyArg;
@@ -75,11 +71,6 @@ pub struct SelftestOpts {
     /// Emit one JSON object instead of human-readable lines.
     #[arg(long)]
     pub json: bool,
-
-    /// Enable the post-quantum (Rosenpass) key exchange.
-    #[cfg(feature = "pq")]
-    #[arg(long)]
-    pub pq: bool,
 }
 
 impl Default for SelftestOpts {
@@ -95,8 +86,6 @@ impl Default for SelftestOpts {
             seed: 1,
             phy: PhyArg::Ofdm,
             json: false,
-            #[cfg(feature = "pq")]
-            pq: false,
         }
     }
 }
@@ -159,15 +148,6 @@ pub struct SelftestReport {
     pub seconds: f64,
     pub phy: &'static str,
     pub opus: bool,
-    /// Whether the PQ layer was enabled for this run.
-    pub pq: bool,
-    pub pq_status_a: &'static str,
-    pub pq_status_b: &'static str,
-    pub pq_exchanges_a: u64,
-    pub pq_exchanges_b: u64,
-    /// Simulated time (ms) each side became PQ-secure, if it did.
-    pub pq_secure_ms_a: Option<f64>,
-    pub pq_secure_ms_b: Option<f64>,
     /// Simulated time (ms) of the first voice packet actually sent.
     pub voice_first_send_ms: Option<f64>,
 }
@@ -182,9 +162,6 @@ impl SelftestReport {
 
     /// Human-readable reason the run did not pass.
     pub fn failure_reason(&self) -> Option<String> {
-        if self.pq && (self.pq_secure_ms_a.is_none() || self.pq_secure_ms_b.is_none()) {
-            return Some("the post-quantum layer never became secure on both sides".to_string());
-        }
         if self.passed() {
             return None;
         }
@@ -256,20 +233,6 @@ impl fmt::Display for SelftestReport {
         )?;
         writeln!(
             f,
-            "pq:                   a={} ({} ms, {} exchange(s))  b={} ({} ms, {} exchange(s))",
-            self.pq_status_a,
-            self.pq_secure_ms_a
-                .map(|ms| format!("{ms:.1}"))
-                .unwrap_or_else(|| "never".to_string()),
-            self.pq_exchanges_a,
-            self.pq_status_b,
-            self.pq_secure_ms_b
-                .map(|ms| format!("{ms:.1}"))
-                .unwrap_or_else(|| "never".to_string()),
-            self.pq_exchanges_b
-        )?;
-        writeln!(
-            f,
             "link A:               sent={} dropped={} delivered={} rejected={} handshakes={}",
             self.link_a.sent,
             self.link_a.dropped_no_session,
@@ -290,7 +253,6 @@ impl fmt::Display for SelftestReport {
 }
 
 /// Run the offline voice loop and return the measurements.
-#[cfg_attr(not(feature = "pq"), allow(unused_mut))]
 pub fn run_selftest(opts: &SelftestOpts) -> Result<SelftestReport> {
     if opts.seconds <= 0.0 {
         bail!("--seconds must be positive");
@@ -325,21 +287,6 @@ pub fn run_selftest(opts: &SelftestOpts) -> Result<SelftestReport> {
         cfg,
     );
 
-    #[cfg(feature = "pq")]
-    if opts.pq {
-        let a_pq = generate_pq_keypair()?;
-        let b_pq = generate_pq_keypair()?;
-        let a_initiator = a_identity.wg_public() < b_identity.wg_public();
-        a.set_pq_session(
-            PqSession::new(&a_pq, b_pq.public(), a_initiator)?,
-            a_initiator,
-        );
-        b.set_pq_session(
-            PqSession::new(&b_pq, a_pq.public(), !a_initiator)?,
-            !a_initiator,
-        );
-    }
-
     let a_to_b = if opts.opus {
         Some(Channel::new(channel_cfg(opts.loss, opts.burst, opts.seed))?)
     } else {
@@ -356,34 +303,15 @@ pub fn run_selftest(opts: &SelftestOpts) -> Result<SelftestReport> {
     };
     let mut wire = SimWire::new(a_to_b, b_to_a);
 
-    // `speaker_out` accumulates B's decoded voice; declared before the PQ
-    // warm-up so any output produced there is recorded.
+    // `speaker_out` accumulates B's decoded voice.
     let mut speaker_out: Vec<f32> = Vec::new();
 
     let mut now = 0.0f64;
     let mut next_tick = TICK_INTERVAL;
     let mut handshake_ms: Option<f64> = None;
-    let mut pq_secure_ms_a: Option<f64> = None;
-    let mut pq_secure_ms_b: Option<f64> = None;
 
-    let mut warmup_samples = (WARMUP_SECS * SAMPLE_RATE as f64) as usize;
-    let mut input_start_samples = warmup_samples;
-
-    #[cfg(feature = "pq")]
-    if opts.pq {
-        warmup_samples = pq_warmup(
-            &mut a,
-            &mut b,
-            &mut wire,
-            &mut speaker_out,
-            &mut now,
-            &mut next_tick,
-            &mut handshake_ms,
-            &mut pq_secure_ms_a,
-            &mut pq_secure_ms_b,
-        );
-        input_start_samples = 0;
-    }
+    let warmup_samples = (WARMUP_SECS * SAMPLE_RATE as f64) as usize;
+    let input_start_samples = warmup_samples;
 
     let tail_samples = (TAIL_SECS * SAMPLE_RATE as f64) as usize;
     let total_samples = warmup_samples + input.len() + tail_samples;
@@ -491,22 +419,6 @@ pub fn run_selftest(opts: &SelftestOpts) -> Result<SelftestReport> {
         seconds: input.len() as f64 / SAMPLE_RATE as f64,
         phy: opts.phy.name(),
         opus: opts.opus,
-        pq: {
-            #[cfg(feature = "pq")]
-            {
-                opts.pq
-            }
-            #[cfg(not(feature = "pq"))]
-            {
-                false
-            }
-        },
-        pq_status_a: a.pq_status(),
-        pq_status_b: b.pq_status(),
-        pq_exchanges_a: a.pq_exchanges(),
-        pq_exchanges_b: b.pq_exchanges(),
-        pq_secure_ms_a,
-        pq_secure_ms_b,
         voice_first_send_ms: a.send_times().first().map(|&(_, t)| t * 1000.0),
     };
 
@@ -518,62 +430,6 @@ pub fn run_selftest(opts: &SelftestOpts) -> Result<SelftestReport> {
     }
 
     Ok(report)
-}
-
-/// Generate a Classic McEliece keypair on a thread with a large stack. McEliece
-/// keygen overflows the default test-thread stack; the real command and the
-/// offline test both need the extra room.
-#[cfg(feature = "pq")]
-fn generate_pq_keypair() -> Result<PqKeypair> {
-    std::thread::Builder::new()
-        .stack_size(32 * 1024 * 1024)
-        .spawn(|| PqKeypair::generate().map_err(anyhow::Error::from))
-        .context("failed to spawn post-quantum keygen thread")?
-        .join()
-        .map_err(|_| anyhow!("post-quantum keygen thread panicked"))?
-}
-
-/// PQ warm-up: feed silence, ticking, until both endpoints are PQ-secure or 60 s
-/// of simulated time passes. Returns the number of samples fed; records the
-/// simulated ms at which each side became secure in the two Option refs.
-#[cfg(feature = "pq")]
-#[allow(clippy::too_many_arguments)]
-fn pq_warmup(
-    a: &mut CallEngine,
-    b: &mut CallEngine,
-    wire: &mut SimWire,
-    speaker_out: &mut Vec<f32>,
-    now: &mut f64,
-    next_tick: &mut f64,
-    handshake_ms: &mut Option<f64>,
-    pq_secure_ms_a: &mut Option<f64>,
-    pq_secure_ms_b: &mut Option<f64>,
-) -> usize {
-    let max_samples = (60.0 * SAMPLE_RATE as f64) as usize;
-    let mut fed = 0usize;
-    while fed < max_samples {
-        if *now >= *next_tick - 1e-9 {
-            a.tick();
-            b.tick();
-            *next_tick += TICK_INTERVAL;
-        }
-        wire.step(a, b, &[], speaker_out);
-        fed += STEP_SAMPLES;
-        *now += STEP_SAMPLES as f64 / SAMPLE_RATE as f64;
-        if handshake_ms.is_none() && a.is_up() && b.is_up() {
-            *handshake_ms = Some(*now * 1000.0);
-        }
-        if pq_secure_ms_a.is_none() && a.pq_secure() {
-            *pq_secure_ms_a = Some(*now * 1000.0);
-        }
-        if pq_secure_ms_b.is_none() && b.pq_secure() {
-            *pq_secure_ms_b = Some(*now * 1000.0);
-        }
-        if pq_secure_ms_a.is_some() && pq_secure_ms_b.is_some() {
-            break;
-        }
-    }
-    fed
 }
 
 /// Print the report as human-readable lines or one JSON object.
@@ -906,37 +762,6 @@ mod tests {
             report.voice_packets_delivered as f64 / report.voice_packets_sent as f64 >= 0.90,
             "delivery ratio {:.3}",
             report.voice_packets_delivered as f64 / report.voice_packets_sent as f64
-        );
-    }
-
-    #[cfg(feature = "pq")]
-    #[test]
-    fn selftest_pq_is_secure_and_delivers() {
-        let report = run_selftest(&SelftestOpts {
-            seconds: 10.0,
-            pq: true,
-            ..Default::default()
-        })
-        .unwrap();
-        assert!(report.pq);
-        assert_eq!(report.pq_status_a, "secure");
-        assert_eq!(report.pq_status_b, "secure");
-        assert!(report.pq_secure_ms_a.is_some() && report.pq_secure_ms_b.is_some());
-        assert!(report.pq_exchanges_a >= 1 && report.pq_exchanges_b >= 1);
-        assert!(
-            report.voice_packets_sent > 0,
-            "voice must flow after PQ is secure"
-        );
-        assert_eq!(
-            report.voice_packets_delivered, report.voice_packets_sent,
-            "loss 0: all voice delivered"
-        );
-        // Zero voice packets sent before PQ-secure:
-        let a_secure_ms = report.pq_secure_ms_a.unwrap();
-        let first_ms = report.voice_first_send_ms.unwrap();
-        assert!(
-            first_ms + 1e-9 >= a_secure_ms,
-            "voice sent before PQ-secure: first={first_ms} secure={a_secure_ms}"
         );
     }
 }

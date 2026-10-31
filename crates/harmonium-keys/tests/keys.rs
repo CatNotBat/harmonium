@@ -1,6 +1,6 @@
 //! Integration tests for harmonium-keys.
 
-use harmonium_keys::{Bundle, Identity, KeysError, Store, fingerprint, pq_pk_hash};
+use harmonium_keys::{Bundle, Identity, KeysError, Store, fingerprint};
 
 /// The public key of age's upstream test secret key
 /// `AGE-SECRET-KEY-1GQ9778VQXMMJVE8SK7J6VT8UJ4HDQAJUVSFCWCM02D8GEWQ72PVQ2Y5J33`.
@@ -60,7 +60,6 @@ fn bundle_display_from_str_round_trip() {
     let bundle = Bundle {
         wg_public: [7u8; 32],
         age_recipient: TEST_RECIPIENT.to_string(),
-        pq: None,
     };
 
     let text = bundle.to_string();
@@ -97,7 +96,6 @@ fn fingerprint_is_deterministic_and_shaped() {
     let bundle = Bundle {
         wg_public: [1u8; 32],
         age_recipient: TEST_RECIPIENT.to_string(),
-        pq: None,
     };
 
     let a = fingerprint(&bundle);
@@ -117,12 +115,10 @@ fn fingerprint_varies_with_inputs() {
     let b1 = Bundle {
         wg_public: [0u8; 32],
         age_recipient: TEST_RECIPIENT.to_string(),
-        pq: None,
     };
     let b2 = Bundle {
         wg_public: [1u8; 32],
         age_recipient: TEST_RECIPIENT.to_string(),
-        pq: None,
     };
     assert_ne!(fingerprint(&b1), fingerprint(&b2));
 
@@ -130,7 +126,6 @@ fn fingerprint_varies_with_inputs() {
     let b3 = Bundle {
         wg_public: [0u8; 32],
         age_recipient: other_recipient,
-        pq: None,
     };
     assert_ne!(fingerprint(&b1), fingerprint(&b3));
 }
@@ -146,7 +141,6 @@ fn fingerprint_known_answer() {
     let bundle = Bundle {
         wg_public: [0u8; 32],
         age_recipient: TEST_RECIPIENT.to_string(),
-        pq: None,
     };
     assert_eq!(fingerprint(&bundle), "50362 18073 48296 21045 75515 78009");
 }
@@ -203,176 +197,4 @@ fn identity_debug_does_not_leak_secret() {
 
     assert!(!debug.contains("AGE-SECRET-KEY"));
     assert!(debug.contains("age1"));
-}
-
-#[test]
-fn bundle_v1_v2_round_trip() {
-    let v1 = Bundle {
-        wg_public: [7u8; 32],
-        age_recipient: TEST_RECIPIENT.to_string(),
-        pq: None,
-    };
-    let v1_text = v1.to_string();
-    assert!(v1_text.starts_with("harmonium1:"));
-    assert_eq!(v1_text.parse::<Bundle>().unwrap(), v1);
-
-    let v2 = Bundle {
-        wg_public: [7u8; 32],
-        age_recipient: TEST_RECIPIENT.to_string(),
-        pq: Some([7u8; 32]),
-    };
-    let v2_text = v2.to_string();
-    assert!(v2_text.starts_with("harmonium2:"));
-    assert_eq!(v2_text.parse::<Bundle>().unwrap(), v2);
-}
-
-#[test]
-fn v2_bundle_from_str_rejects_bad_hash() {
-    // 31-byte (not 32-byte) pq hash.
-    let bad_hash = format!("harmonium2:{ZERO32_B64}:{TEST_RECIPIENT}:{ZERO31_B64}");
-    assert!(matches!(
-        bad_hash.parse::<Bundle>(),
-        Err(KeysError::Parse(_))
-    ));
-
-    // Missing hash field.
-    let missing = format!("harmonium2:{ZERO32_B64}:{TEST_RECIPIENT}");
-    assert!(matches!(
-        missing.parse::<Bundle>(),
-        Err(KeysError::Parse(_))
-    ));
-}
-
-#[test]
-fn fingerprint_v1_unchanged_and_v2_differs() {
-    let v1 = Bundle {
-        wg_public: [0u8; 32],
-        age_recipient: TEST_RECIPIENT.to_string(),
-        pq: None,
-    };
-    assert_eq!(fingerprint(&v1), "50362 18073 48296 21045 75515 78009");
-
-    let v2 = Bundle {
-        wg_public: [0u8; 32],
-        age_recipient: TEST_RECIPIENT.to_string(),
-        pq: Some([0u8; 32]),
-    };
-    let v2_fp = fingerprint(&v2);
-    assert_ne!(v2_fp, fingerprint(&v1));
-    let groups: Vec<&str> = v2_fp.split(' ').collect();
-    assert_eq!(groups.len(), 6);
-    for group in groups {
-        assert_eq!(group.len(), 5);
-        assert!(group.chars().all(|c| c.is_ascii_digit()));
-    }
-
-    let v2b = Bundle {
-        wg_public: [0u8; 32],
-        age_recipient: TEST_RECIPIENT.to_string(),
-        pq: Some([1u8; 32]),
-    };
-    assert_ne!(fingerprint(&v2b), v2_fp);
-}
-
-#[test]
-fn pq_pk_hash_deterministic_and_salted() {
-    let h1 = pq_pk_hash(b"x");
-    let h1_again = pq_pk_hash(b"x");
-    assert_eq!(h1, h1_again);
-    assert_eq!(h1.len(), 32);
-    assert_ne!(h1, pq_pk_hash(b"y"));
-}
-
-#[test]
-fn save_load_pq_keys_round_trip_and_force() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = Store::open(dir.path());
-
-    store.save_pq_keys(&[1, 2, 3], &[4, 5, 6], false).unwrap();
-    assert_eq!(
-        store.load_pq_keys().unwrap(),
-        Some((vec![1, 2, 3].into(), vec![4, 5, 6]))
-    );
-    assert_eq!(store.load_pq_public().unwrap(), Some(vec![4, 5, 6]));
-
-    assert!(matches!(
-        store.save_pq_keys(&[9], &[9], false),
-        Err(KeysError::PqKeysExist)
-    ));
-
-    store.save_pq_keys(&[7, 8], &[9], true).unwrap();
-    assert_eq!(
-        store.load_pq_keys().unwrap(),
-        Some((vec![7, 8].into(), vec![9]))
-    );
-}
-
-#[test]
-fn load_pq_keys_missing_is_none() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = Store::open(dir.path());
-    assert_eq!(store.load_pq_keys().unwrap(), None);
-    assert_eq!(store.load_pq_public().unwrap(), None);
-}
-
-#[cfg(unix)]
-#[test]
-fn pq_sk_mode_0600() {
-    use std::os::unix::fs::MetadataExt;
-
-    let dir = tempfile::tempdir().unwrap();
-    let store = Store::open(dir.path());
-    store.save_pq_keys(&[1, 2, 3], &[4, 5, 6], false).unwrap();
-
-    let meta = std::fs::metadata(dir.path().join("pq.sk")).unwrap();
-    assert_eq!(meta.mode() & 0o777, 0o600);
-}
-
-#[test]
-fn save_peer_pq_pk_validates_hash() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = Store::open(dir.path());
-
-    let real_pk = vec![1, 2, 3, 4];
-    let wrong_pk = vec![9, 9, 9];
-    let bundle = Bundle {
-        wg_public: [7u8; 32],
-        age_recipient: TEST_RECIPIENT.to_string(),
-        pq: Some(pq_pk_hash(&real_pk)),
-    };
-    store.add_peer("bob", &bundle).unwrap();
-
-    assert!(matches!(
-        store.save_peer_pq_pk("bob", &wrong_pk),
-        Err(KeysError::PeerPqMismatch { .. })
-    ));
-    store.save_peer_pq_pk("bob", &real_pk).unwrap();
-    assert_eq!(store.peer_pq_pk("bob"), Some(real_pk.clone()));
-
-    // Re-adding the peer with a different pq hash orphans the stored key.
-    store.remove_peer("bob").unwrap();
-    let rekeyed = Bundle {
-        pq: Some(pq_pk_hash(&wrong_pk)),
-        ..bundle.clone()
-    };
-    store.add_peer("bob", &rekeyed).unwrap();
-    assert_eq!(store.peer_pq_pk("bob"), None);
-
-    // A peer without a pq hash in its bundle is rejected.
-    let no_pq = Bundle {
-        wg_public: [8u8; 32],
-        age_recipient: TEST_RECIPIENT.to_string(),
-        pq: None,
-    };
-    store.add_peer("nopq", &no_pq).unwrap();
-    assert!(matches!(
-        store.save_peer_pq_pk("nopq", &real_pk),
-        Err(KeysError::PeerPqMissing { .. })
-    ));
-
-    // Unknown names are not found.
-    assert!(matches!(
-        store.save_peer_pq_pk("ghost", &real_pk),
-        Err(KeysError::NotFound)
-    ));
 }

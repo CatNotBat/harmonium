@@ -5,9 +5,6 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
-[features]
-pq = ["dep:harmonium-pq"]
-
 [dependencies]
 harmonium-voice.workspace = true
 harmonium-modem.workspace = true
@@ -15,7 +12,6 @@ harmonium-link.workspace = true
 harmonium-keys.workspace = true
 harmonium-audio.workspace = true
 harmonium-text.workspace = true
-harmonium-pq = { path = "../harmonium-pq", optional = true }
 channel-sim.workspace = true
 anyhow.workspace = true
 clap.workspace = true

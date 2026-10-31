@@ -13,15 +13,6 @@ ignore = [
     { id = "RUSTSEC-2026-0387", reason = "P-256 path unused; X25519 only" },
     # basic-toml unmaintained, via age's i18n-embed (localised error strings), no secrets.
     { id = "RUSTSEC-2026-0374", reason = "unmaintained, not a vulnerability; age i18n only" },
-    # zip (build dep of libsodium-sys-stable -> rosenpass): the three zip advisories concern
-    # extracting attacker-controlled archives; here zip only unpacks the libsodium source
-    # tarball at build time. libsodium-sys-stable pins zip "8.6", so 9.0.0 is not reachable.
-    { id = "RUSTSEC-2026-0367", reason = "build-time libsodium tarball extraction only" },
-    { id = "RUSTSEC-2026-0368", reason = "build-time libsodium tarball extraction only" },
-    { id = "RUSTSEC-2026-0369", reason = "build-time libsodium tarball extraction only" },
-    # paste (via rosenpass): unmaintained, no known vulnerability; used only by rosenpass's
-    # data_lense! macro at compile time.
-    { id = "RUSTSEC-2024-0436", reason = "rosenpass compile-time macro dependency; unmaintained" },
 ]
 
 [licenses]

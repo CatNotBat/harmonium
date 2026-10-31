@@ -4,17 +4,9 @@ use std::io::{self, Write};
 use std::path::Path;
 
 use anyhow::{Context, Result};
-#[cfg(feature = "pq")]
-use anyhow::{anyhow, bail};
-use harmonium_keys::{
-    Bundle, Identity, KeysError, PeerEntry, Store, fingerprint, pq_pk_hash, qr_unicode,
-};
+use harmonium_keys::{Bundle, Identity, KeysError, PeerEntry, Store, fingerprint, qr_unicode};
 
 use crate::cli::PeerCmd;
-#[cfg(feature = "pq")]
-use crate::cli::PqCmd;
-#[cfg(feature = "pq")]
-use harmonium_pq::PqKeypair;
 
 /// Everything `keygen` / `id` print about an identity.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,11 +26,8 @@ impl IdentityDisplay {
     }
 }
 
-fn display(store: &Store, identity: &Identity) -> IdentityDisplay {
-    let mut bundle = identity.bundle();
-    if let Ok(Some(pk)) = store.load_pq_public() {
-        bundle.pq = Some(pq_pk_hash(&pk));
-    }
+fn display(identity: &Identity) -> IdentityDisplay {
+    let bundle = identity.bundle();
     let bundle_string = bundle.to_string();
     IdentityDisplay {
         fingerprint: fingerprint(&bundle),
@@ -52,13 +41,13 @@ fn display(store: &Store, identity: &Identity) -> IdentityDisplay {
 pub fn keygen(store: &Store, force: bool) -> Result<IdentityDisplay, KeysError> {
     let identity = Identity::generate();
     store.save_identity(&identity, force)?;
-    Ok(display(store, &identity))
+    Ok(display(&identity))
 }
 
 /// Load and display the saved identity.
 pub fn show_identity(store: &Store) -> Result<IdentityDisplay, KeysError> {
     let identity = store.load_identity()?;
-    Ok(display(store, &identity))
+    Ok(display(&identity))
 }
 
 /// Parse a bundle string and add it under `name`.
@@ -117,62 +106,6 @@ pub fn run_id(store: &Store) -> Result<u8> {
     Ok(0)
 }
 
-/// Load the local PQ keypair, the peer's PQ public key, and who initiates the
-/// exchange (the lower WireGuard public key).
-#[cfg(feature = "pq")]
-pub fn load_pq_context(
-    store: &Store,
-    peer_name: &str,
-    identity: &Identity,
-) -> Result<(PqKeypair, Vec<u8>, bool)> {
-    let Some((sk, pk)) = store.load_pq_keys()? else {
-        bail!("no post-quantum keys; run `harmonium pq keygen` first");
-    };
-    let own = PqKeypair::from_bytes(sk, pk)?;
-    let Some(peer_pk) = store.peer_pq_pk(peer_name) else {
-        bail!(
-            "no post-quantum public key for peer {peer_name:?}; import it with `harmonium peer pq-import {peer_name} <FILE>`"
-        );
-    };
-    let peer = store
-        .peer(peer_name)
-        .ok_or_else(|| anyhow!("peer {peer_name:?} not found"))?;
-    let initiator = identity.wg_public() < peer.bundle.wg_public;
-    Ok((own, peer_pk, initiator))
-}
-
-/// `harmonium pq ...`.
-#[cfg(feature = "pq")]
-pub fn run_pq(store: &Store, cmd: &PqCmd) -> Result<u8> {
-    match cmd {
-        PqCmd::Keygen { force } => {
-            let kp = PqKeypair::generate()?;
-            match store.save_pq_keys(kp.secret_bytes(), kp.public(), *force) {
-                Ok(()) => {
-                    println!("generated post-quantum keypair");
-                    Ok(0)
-                }
-                Err(KeysError::PqKeysExist) => {
-                    eprintln!(
-                        "post-quantum keys already exist; re-run with --force to overwrite them"
-                    );
-                    Ok(1)
-                }
-                Err(e) => Err(e.into()),
-            }
-        }
-        PqCmd::Export { file } => {
-            let pk = store
-                .load_pq_public()?
-                .ok_or_else(|| anyhow!("no post-quantum keys; run `harmonium pq keygen` first"))?;
-            std::fs::write(file, &pk)
-                .with_context(|| format!("failed to write {}", file.display()))?;
-            println!("exported post-quantum public key to {}", file.display());
-            Ok(0)
-        }
-    }
-}
-
 /// `harmonium peer ...`.
 pub fn run_peer(store: &Store, cmd: &PeerCmd) -> Result<u8> {
     match cmd {
@@ -225,11 +158,8 @@ pub fn run_peer(store: &Store, cmd: &PeerCmd) -> Result<u8> {
                 .peer(name)
                 .with_context(|| format!("peer {name:?} not found"))?;
             let identity = store.load_identity()?;
-            // The same bundle `harmonium id` shows, PQ key hash included, so verifying covers it.
-            println!(
-                "your fingerprint:     {}",
-                display(store, &identity).fingerprint
-            );
+            // The same bundle `harmonium id` shows, so verifying covers it.
+            println!("your fingerprint:     {}", display(&identity).fingerprint);
             println!("{name}'s fingerprint: {}", fingerprint(&peer.bundle));
             print!("Do the fingerprints match what {name} reads to you? [y/N] ");
             io::stdout().flush()?;
@@ -248,15 +178,6 @@ pub fn run_peer(store: &Store, cmd: &PeerCmd) -> Result<u8> {
         PeerCmd::Remove { name } => {
             remove_peer(store, name)?;
             println!("removed peer {name}");
-            Ok(0)
-        }
-
-        #[cfg(feature = "pq")]
-        PeerCmd::PqImport { name, file } => {
-            let pk = std::fs::read(file)
-                .with_context(|| format!("failed to read {}", file.display()))?;
-            store.save_peer_pq_pk(name, &pk)?;
-            println!("imported post-quantum public key for {name}");
             Ok(0)
         }
     }

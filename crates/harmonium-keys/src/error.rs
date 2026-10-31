@@ -20,13 +20,4 @@ pub enum KeysError {
 
     #[error("not found")]
     NotFound,
-
-    #[error("pq keys already exist")]
-    PqKeysExist,
-
-    #[error("peer {name} has no pq public key hash in its bundle")]
-    PeerPqMissing { name: String },
-
-    #[error("pq public key does not match peer {name}'s bundle hash")]
-    PeerPqMismatch { name: String },
 }

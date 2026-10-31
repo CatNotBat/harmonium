@@ -66,11 +66,10 @@ fuzz_target!(|data: &[u8]| {
     // Phase B: complete a real handshake, send a datagram, and exercise the
     // VoicePacket parser on every Voice-channel delivery.
     if !data.is_empty() && bring_up(&mut a, &mut b) {
-        let channel = match data[0] % 4 {
+        let channel = match data[0] % 3 {
             0 => Channel::Voice,
             1 => Channel::Control,
-            2 => Channel::Text,
-            _ => Channel::Pq,
+            _ => Channel::Text,
         };
         for wire in a.send(channel, &data[1..]) {
             let (_, delivered) = b.receive(&wire);

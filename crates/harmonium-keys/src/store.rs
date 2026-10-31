@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize as _, Zeroizing};
 
 use crate::error::KeysError;
-use crate::identity::{Bundle, Identity, pq_pk_hash};
+use crate::identity::{Bundle, Identity};
 use crate::peer::PeerEntry;
 
 #[derive(Serialize, Deserialize)]
@@ -183,63 +183,6 @@ impl Store {
         self.write_peers(&peers)
     }
 
-    /// Persists the local PQ secret and public keys as raw bytes, refusing to
-    /// overwrite an existing keypair unless `force` is set.
-    pub fn save_pq_keys(&self, sk: &[u8], pk: &[u8], force: bool) -> Result<(), KeysError> {
-        fs::create_dir_all(&self.dir)?;
-        let sk_path = self.dir.join("pq.sk");
-        let pk_path = self.dir.join("pq.pk");
-        if !force && (sk_path.exists() || pk_path.exists()) {
-            return Err(KeysError::PqKeysExist);
-        }
-        atomic_write(&sk_path, sk)?;
-        atomic_write(&pk_path, pk)
-    }
-
-    /// Loads the local PQ keypair; `None` if either file is absent. The secret key is wiped
-    /// from memory when dropped.
-    #[allow(clippy::type_complexity)]
-    pub fn load_pq_keys(&self) -> Result<Option<(Zeroizing<Vec<u8>>, Vec<u8>)>, KeysError> {
-        let Some(sk) = read_optional(&self.dir.join("pq.sk"))? else {
-            return Ok(None);
-        };
-        let Some(pk) = read_optional(&self.dir.join("pq.pk"))? else {
-            return Ok(None);
-        };
-        Ok(Some((Zeroizing::new(sk), pk)))
-    }
-
-    /// Loads only the local PQ public key, without reading the secret key; `None` if absent.
-    pub fn load_pq_public(&self) -> Result<Option<Vec<u8>>, KeysError> {
-        read_optional(&self.dir.join("pq.pk"))
-    }
-
-    /// Persists a peer's PQ public key, verifying it against the hash in the
-    /// peer's bundle.
-    pub fn save_peer_pq_pk(&self, name: &str, pk: &[u8]) -> Result<(), KeysError> {
-        validate_name(name)?;
-        let entry = self.peer(name).ok_or(KeysError::NotFound)?;
-        let hash = entry.bundle.pq.ok_or(KeysError::PeerPqMissing {
-            name: name.to_string(),
-        })?;
-        if pq_pk_hash(pk) != hash {
-            return Err(KeysError::PeerPqMismatch {
-                name: name.to_string(),
-            });
-        }
-        fs::create_dir_all(self.dir.join("pq-peers"))?;
-        atomic_write(&self.dir.join("pq-peers").join(format!("{name}.pk")), pk)
-    }
-
-    /// Returns the peer's stored PQ public key, or `None` on any read error or when it no
-    /// longer matches the hash in the peer's current bundle (e.g. the peer was re-added).
-    pub fn peer_pq_pk(&self, name: &str) -> Option<Vec<u8>> {
-        validate_name(name).ok()?;
-        let hash = self.peer(name)?.bundle.pq?;
-        let pk = fs::read(self.dir.join("pq-peers").join(format!("{name}.pk"))).ok()?;
-        (pq_pk_hash(&pk) == hash).then_some(pk)
-    }
-
     /// Loads the peer table, treating a missing file as empty.
     fn load_peers(&self) -> Result<PeerFile, KeysError> {
         Ok(self.read_peers_optional()?.unwrap_or_default())
@@ -261,15 +204,6 @@ impl Store {
     fn write_peers(&self, peers: &PeerFile) -> Result<(), KeysError> {
         let contents = toml::to_string(peers).map_err(|e| KeysError::Parse(e.to_string()))?;
         atomic_write(&self.dir.join("peers.toml"), contents.as_bytes())
-    }
-}
-
-/// Reads a whole file; a missing file yields `Ok(None)`.
-fn read_optional(path: &Path) -> Result<Option<Vec<u8>>, KeysError> {
-    match fs::read(path) {
-        Ok(bytes) => Ok(Some(bytes)),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(KeysError::Io(e)),
     }
 }
 

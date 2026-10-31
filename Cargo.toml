@@ -1,10 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "tools/channel-sim"]
-# harmonium-pq pulls in rosenpass (libsodium + liboqs), which does not build on
-# the Windows CI runner. Keep it out of the default workspace so `--workspace`
-# builds never compile it; it is reached only via harmonium-cli's `pq` feature.
-exclude = ["crates/harmonium-pq", "fuzz"]
+exclude = ["fuzz"]
 
 [workspace.package]
 version = "0.1.0"

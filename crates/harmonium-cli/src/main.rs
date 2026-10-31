@@ -36,8 +36,6 @@ fn run(cli: Cli) -> Result<u8> {
         Command::Keygen { force } => keys::run_keygen(&store, &dir, force),
         Command::Id => keys::run_id(&store),
         Command::Peer { cmd } => keys::run_peer(&store, &cmd),
-        #[cfg(feature = "pq")]
-        Command::Pq { cmd } => keys::run_pq(&store, &cmd),
         Command::Devices { cmd } => devices::run(&cmd),
         Command::Text { cmd } => text::run(&store, &cmd),
         Command::Selftest(opts) => selftest::run(&opts),

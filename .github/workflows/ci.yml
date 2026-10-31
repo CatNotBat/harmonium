@@ -14,7 +14,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  LINUX_DEPS: libasound2-dev libpipewire-0.3-dev cmake libsodium-dev clang libclang-dev pkg-config
+  LINUX_DEPS: libasound2-dev libpipewire-0.3-dev cmake clang libclang-dev pkg-config
 
 jobs:
   fmt:
@@ -49,9 +49,6 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --release --locked
-      - name: Post-quantum tests (Linux only)
-        if: runner.os == 'Linux'
-        run: cargo test --release --locked -p harmonium-pq -p harmonium-cli --features harmonium-cli/pq
 
   msrv:
     runs-on: ubuntu-latest

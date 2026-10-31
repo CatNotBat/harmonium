@@ -32,8 +32,6 @@ What works:
 - Live encrypted voice between Linux and Windows over a real Discord DM call (numbers below).
 - Encrypted text: `harmonium text encrypt`, paste it into Discord, copy it back, decrypt.
 - `harmonium selftest` runs the whole voice loop offline through a simulated Opus channel.
-- Rosenpass post-quantum key exchange behind the `pq` cargo feature (`--features pq`, then
-  `harmonium pq keygen`, `call --pq`). It passes offline but has not run over Discord yet.
 - Fuzz targets in `fuzz/`, a threat model in docs/threat-model.md, signed releases.
 
 The modem in the simulator (600 s, 2% Opus packet loss, `channel-sim bench --phy ofdm`): 34
@@ -60,6 +58,9 @@ On Windows, Harmonium records Discord's own audio with WASAPI process loopback a
 turns Discord's volume-mixer level down to -60 dB while a call runs (then scales the capture
 back up; measured exact). Muting instead would also silence the loopback. So Windows needs
 only one VB-CABLE, for the send side.
+
+Unfinished work lives on branches until it has run on a real call: Rosenpass post-quantum key
+exchange is on `pq-rosenpass` (passes offline, never tested live).
 
 ## Using it
 
@@ -98,8 +99,8 @@ your speakers), or your next ordinary Discord call is silent.
 
 ## Ground rules
 
-- **No custom crypto.** Primitives come only from GotaTun (WireGuard), Rosenpass and age.
-  `deny.toml` bans every primitive crate unless it is pulled in through one of them.
+- **No custom crypto.** Primitives come only from GotaTun (WireGuard) and age. `deny.toml`
+  bans every primitive crate unless it is pulled in through one of them.
 - **Fail closed.** If the tunnel is down, Harmonium sends silence (or idle modem frames), never
   the plain microphone.
 - **Everything runs offline.** Every stage is file-in, file-out, so it can be tested without
@@ -127,8 +128,7 @@ cargo deny check
 ```
 
 Linux needs ALSA headers and CMake (libopus is built from source by the `opus` crate).
-Windows needs CMake and a C toolchain (the `pq` feature also wants libsodium 1.0.20 MinGW,
-Ninja and libclang).
+Windows needs CMake and a C toolchain.
 
 ## Release
 

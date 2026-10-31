@@ -12,6 +12,6 @@ pub mod store;
 
 pub use error::KeysError;
 pub use fingerprint::{fingerprint, qr_unicode};
-pub use identity::{Bundle, Identity, pq_pk_hash};
+pub use identity::{Bundle, Identity};
 pub use peer::PeerEntry;
 pub use store::Store;

@@ -61,13 +61,6 @@ pub enum Command {
 
     /// Run a live encrypted call.
     Call(CallOpts),
-
-    #[cfg(feature = "pq")]
-    /// Manage the post-quantum (Rosenpass) keypair.
-    Pq {
-        #[command(subcommand)]
-        cmd: PqCmd,
-    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -88,23 +81,6 @@ pub enum PeerCmd {
 
     /// Remove a peer (absent is a no-op).
     Remove { name: String },
-
-    #[cfg(feature = "pq")]
-    /// Import a peer's post-quantum public key from a file.
-    PqImport { name: String, file: PathBuf },
-}
-
-#[cfg(feature = "pq")]
-#[derive(Subcommand, Debug)]
-pub enum PqCmd {
-    /// Generate a new post-quantum keypair.
-    Keygen {
-        #[arg(long)]
-        force: bool,
-    },
-
-    /// Write this identity's post-quantum public key to a file (send it to the peer).
-    Export { file: PathBuf },
 }
 
 #[derive(Subcommand, Debug)]
@@ -350,58 +326,6 @@ mod tests {
                 assert_eq!(opts.phy, PhyArg::Ofdm);
                 assert!(opts.allow_unverified);
             }
-            other => panic!("unexpected command {other:?}"),
-        }
-    }
-
-    #[cfg(feature = "pq")]
-    #[test]
-    fn parse_pq() {
-        assert!(matches!(
-            Cli::try_parse_from(["harmonium", "pq", "keygen"])
-                .unwrap()
-                .command,
-            Command::Pq {
-                cmd: PqCmd::Keygen { force: false }
-            }
-        ));
-        assert!(matches!(
-            Cli::try_parse_from(["harmonium", "pq", "keygen", "--force"])
-                .unwrap()
-                .command,
-            Command::Pq {
-                cmd: PqCmd::Keygen { force: true }
-            }
-        ));
-        assert!(matches!(
-            Cli::try_parse_from(["harmonium", "pq", "export", "f.pk"])
-                .unwrap()
-                .command,
-            Command::Pq {
-                cmd: PqCmd::Export { .. }
-            }
-        ));
-        assert!(matches!(
-            Cli::try_parse_from(["harmonium", "peer", "pq-import", "bob", "bob.pk"])
-                .unwrap()
-                .command,
-            Command::Peer {
-                cmd: PeerCmd::PqImport { .. }
-            }
-        ));
-
-        match Cli::try_parse_from(["harmonium", "call", "bob", "--pq"])
-            .unwrap()
-            .command
-        {
-            Command::Call(opts) => assert!(opts.pq),
-            other => panic!("unexpected command {other:?}"),
-        }
-        match Cli::try_parse_from(["harmonium", "selftest", "--pq"])
-            .unwrap()
-            .command
-        {
-            Command::Selftest(opts) => assert!(opts.pq),
             other => panic!("unexpected command {other:?}"),
         }
     }
