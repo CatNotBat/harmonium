@@ -10,6 +10,10 @@ use crate::resample::{Downsampler48k, Upsampler8k};
 /// without bound through sequence-number gaps.
 pub const MAX_CONCEAL_SAMPLES: usize = 8000;
 
+/// Most decoded audio the decoder holds: 2 s at 8 kHz. Beyond it the oldest samples are
+/// dropped, so a peer sending faster than real time adds no memory and no extra delay.
+pub const MAX_QUEUE_SAMPLES: usize = 16000;
+
 /// Turns 48 kHz microphone audio into small [`VoicePacket`]s.
 pub struct VoiceEncoder {
     codec: VoiceCodec,
@@ -138,8 +142,8 @@ impl VoiceDecoder {
     /// A forward sequence-number gap of fewer than 100 inserts one packet's
     /// worth of silence per missing packet (using the arriving packet's
     /// duration, capped at [`MAX_CONCEAL_SAMPLES`]); duplicate and old
-    /// sequence numbers are ignored. The codec
-    /// is recreated when the packet's mode changes.
+    /// sequence numbers are ignored. The codec is recreated when the packet's
+    /// mode changes. The queue keeps at most [`MAX_QUEUE_SAMPLES`], newest kept.
     pub fn push_packet(&mut self, packet: &VoicePacket) {
         if let Some(last) = self.last_seq {
             let gap = packet.seq.wrapping_sub(last);
@@ -174,6 +178,9 @@ impl VoiceDecoder {
             );
             codec.decode(&mut samples, &frame_bits);
             self.queue.extend(samples.iter().copied());
+        }
+        if let Some(excess) = self.queue.len().checked_sub(MAX_QUEUE_SAMPLES) {
+            self.queue.drain(..excess);
         }
 
         self.last_seq = Some(packet.seq);
@@ -315,6 +322,17 @@ mod tests {
         // The last packet still occupies the final slot (1600..1920 ms).
         let last_rms = rms(&out[1600 * 48..1920 * 48]);
         assert!(last_rms > 0.01, "last packet missing, rms {last_rms}");
+    }
+
+    #[test]
+    fn queue_is_bounded_when_audio_arrives_faster_than_it_is_pulled() {
+        let mut encoder = VoiceEncoder::new(VoiceMode::M1300, 320);
+        let packets = encoder.push_48k(&speech_like(10.0));
+        let mut decoder = VoiceDecoder::new();
+        for packet in &packets {
+            decoder.push_packet(packet);
+        }
+        assert_eq!(decoder.queue.len(), MAX_QUEUE_SAMPLES);
     }
 
     #[test]
