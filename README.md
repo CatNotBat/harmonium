@@ -3,14 +3,12 @@
 End-to-end encrypted voice and text over an ordinary Discord call. Discord carries only modem
 audio and ASCII-armored ciphertext; the keys never leave your machines.
 
-![A says "here I am" three times, B answers "so glad you are" three times; Discord gets the
-same modem noise both times](docs/img/here-i-am.png)
+![A: here I am, here I am, here I am. B: so glad you are, so glad you are, so glad you are.
+Discord gets the same modem noise both times](docs/img/here-i-am.png)
 
-In Kurt Vonnegut's *The Sirens of Titan*, the harmoniums live in the caves of Mercury and have
-only two things to say: "Here I am, here I am, here I am" and "So glad you are, so glad you
-are, so glad you are." Here is that conversation through `harmonium selftest` (simulated Opus,
-2% packet loss). What Discord got: [A](docs/demo/a-discord.mp3), [B](docs/demo/b-discord.mp3).
-What came out the other end: [A](docs/demo/a-heard.mp3), [B](docs/demo/b-heard.mp3).
+Both lines went through `harmonium selftest` (simulated Opus, 2% packet loss). Listen to what
+Discord got ([A](docs/demo/a-discord.mp3), [B](docs/demo/b-discord.mp3)) and what came out the
+other end ([A](docs/demo/a-heard.mp3), [B](docs/demo/b-heard.mp3)).
 
 ```
 mic → Codec 2 (1300 bps) → WireGuard (GotaTun) → modem → virtual mic → Discord (Opus)
