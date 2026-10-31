@@ -141,9 +141,9 @@ impl VoiceDecoder {
     ///
     /// A forward sequence-number gap of fewer than 100 inserts one packet's
     /// worth of silence per missing packet (using the arriving packet's
-    /// duration, capped at [`MAX_CONCEAL_SAMPLES`]); duplicate and old
+    /// duration, capped at `MAX_CONCEAL_SAMPLES`); duplicate and old
     /// sequence numbers are ignored. The codec is recreated when the packet's
-    /// mode changes. The queue keeps at most [`MAX_QUEUE_SAMPLES`], newest kept.
+    /// mode changes. The queue keeps at most `MAX_QUEUE_SAMPLES`, newest kept.
     pub fn push_packet(&mut self, packet: &VoicePacket) {
         if let Some(last) = self.last_seq {
             let gap = packet.seq.wrapping_sub(last);
